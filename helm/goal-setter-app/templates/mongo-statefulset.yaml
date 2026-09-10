@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: StatefulSet
+
+metadata:
+  name: {{ include "goal-setter-app.fullname" . }}-mongo
+
+spec:
+  serviceName: {{ include "goal-setter-app.fullname" . }}-mongo
+
+  replicas: {{ .Values.mongodb.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: mongo
+
+  template:
+    metadata:
+      labels:
+        app: mongo
+
+    spec:
+      volumes:
+        - name: keyfile
+          emptyDir: {}
+
+        - name: keyfile-secret
+          secret:
+            secretName: {{ include "goal-setter-app.fullname" . }}-mongo-keyfile
+            defaultMode: 0400
+
+      initContainers:
+        - name: copy-keyfile
+          image: busybox:1.36
+
+          command:
+            - sh
+            - -c
+            - |
+              cp /secret/mongo-keyfile /workdir/mongo-keyfile
+              chown 999:999 /workdir/mongo-keyfile
+              chmod 400 /workdir/mongo-keyfile
+
+          volumeMounts:
+            - name: keyfile-secret
+              mountPath: /secret
+
+            - name: keyfile
+              mountPath: /workdir
+
+      containers:
+      - name: mongo
+
+        image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
+        imagePullPolicy: {{ .Values.mongodb.image.pullPolicy }}
+
+        args:
+          - "--bind_ip_all"
+          - "--replSet"
+          - "{{ .Values.mongodb.replicaSet }}"
+          - "--keyFile"
+          - "/etc/mongo-keyfile/mongo-keyfile"
+
+        ports:
+          - containerPort: {{ .Values.mongodb.service.port }}
+
+        env:
+          - name: MONGO_INITDB_ROOT_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "goal-setter-app.fullname" . }}-mongo-credentials
+                key: MONGO_INITDB_ROOT_USERNAME
+
+          - name: MONGO_INITDB_ROOT_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "goal-setter-app.fullname" . }}-mongo-credentials
+                key: MONGO_INITDB_ROOT_PASSWORD
+
+        readinessProbe:
+          exec:
+            command:
+              - sh
+              - -c
+              - >
+                mongosh
+                --username "$MONGO_INITDB_ROOT_USERNAME"
+                --password "$MONGO_INITDB_ROOT_PASSWORD"
+                --authenticationDatabase admin
+                --eval "db.adminCommand('ping')"
+
+        volumeMounts:
+          - name: mongo-storage
+            mountPath: /data/db
+
+          - name: keyfile
+            mountPath: /etc/mongo-keyfile
+            readOnly: true
+
+  volumeClaimTemplates:
+  - metadata:
+      name: mongo-storage
+
+    spec:
+      accessModes:
+        - ReadWriteOnce
+
+      storageClassName: {{ .Values.mongodb.storage.className }}
+
+      resources:
+        requests:
+          storage: {{ .Values.mongodb.storage.size }}
+

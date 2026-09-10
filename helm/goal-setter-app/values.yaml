@@ -1,0 +1,64 @@
+backend:
+  replicaCount: 2
+
+  image: 
+    repository: 188860182329.dkr.ecr.eu-north-1.amazonaws.com/goal-reminder-backend
+    tag: v3.0.0
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 5000
+
+  config:
+    port: "5000"
+    nodeEnv: development
+
+  resources:
+    requests:
+      cpu: 200m
+    limits:
+      cpu: 400m
+
+frontend:
+  replicaCount: 1
+
+  image: 
+    repository: 188860182329.dkr.ecr.eu-north-1.amazonaws.com/goal-reminder-frontend
+    tag: v3.0.0
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 80
+
+
+  
+mongodb:
+  replicaCount: 3
+
+  image:
+    repository: mongo
+    tag: "8"
+    pullPolicy: IfNotPresent
+
+  service:
+    port: 27017
+
+
+  replicaSet: rs0
+
+  storage:
+    className: gp2
+    size: 2Gi
+
+ingress:
+  enabled: true
+
+  className: alb
+
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+
+  host: ""

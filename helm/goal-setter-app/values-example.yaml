@@ -1,0 +1,73 @@
+backend:
+  replicaCount: 
+
+  image: 
+    repository: pavankrishnapallem/goal-reminder-backend
+    tag: v3.0.0
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 5000
+
+  config:
+    port: "5000"
+    nodeEnv: development
+
+  secret:
+    jwtSecret: 
+    refreshTokenSecret:
+    #for 3 replicas 
+    mongoUri: mongodb://username:password@{{ include "goal-setter-app.fullname" . }}-mongo-0.{{ include "goal-setter-app.fullname" . }}-mongo:27017,{{ include "goal-setter-app.fullname" . }}-mongo-1.{{ include "goal-setter-app.fullname" . }}-mongo:27017,{{ include "goal-setter-app.fullname" . }}-mongo-2.{{ include "goal-setter-app.fullname" . }}-mongo:27017/?replicaSet=rs0
+  resources:
+    requests:
+      cpu: 200m
+    limits:
+      cpu: 400m
+
+frontend:
+  replicaCount: 1
+
+  image: 
+    repository: pavankrishnapallem/goal-reminder-frontend
+    tag: v3.0.0
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 80
+
+mongo:
+  username: 
+  password: 
+  replicaSet: 
+  
+mongodb:
+  replicaCount: 3
+
+  image:
+    repository: mongo
+    tag: "8"
+    pullPolicy: IfNotPresent
+
+  service:
+    port: 27017
+
+  auth:
+    username: 
+    password: 
+
+  replicaSet: 
+
+  storage:
+    className: mongo-storage
+    size: 
+
+ingress:
+  enabled: true
+
+  className: 
+
+  annotations: {}
+
+  host: ""

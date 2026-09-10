@@ -1,0 +1,145 @@
+apiVersion: batch/v1
+kind: Job
+
+metadata:
+  name: {{ include "goal-setter-app.fullname" . }}-mongo-replicaset-init
+
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+
+spec:
+  backoffLimit: 10
+
+  template:
+    metadata:
+      labels:
+        app: mongo-replicaset-init
+
+    spec:
+      restartPolicy: OnFailure
+
+      containers:
+        - name: mongo-replicaset-init
+
+          image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
+
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "goal-setter-app.fullname" . }}-mongo-credentials
+                  key: MONGO_INITDB_ROOT_USERNAME
+
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "goal-setter-app.fullname" . }}-mongo-credentials
+                  key: MONGO_INITDB_ROOT_PASSWORD
+
+          command:
+            - /bin/bash
+            - -c
+
+          args:
+            - |
+              set -e
+
+              MONGO_HOST="{{ include "goal-setter-app.fullname" . }}-mongo-0.{{ include "goal-setter-app.fullname" . }}-mongo"
+              MONGO_PORT="{{ .Values.mongodb.service.port }}"
+              REPLICA_SET="{{ .Values.mongodb.replicaSet }}"
+
+              echo "Waiting for all MongoDB members..."
+
+              for i in 0 1 2
+              do
+                HOST="{{ include "goal-setter-app.fullname" . }}-mongo-${i}.{{ include "goal-setter-app.fullname" . }}-mongo"
+
+                echo "Waiting for ${HOST}:${MONGO_PORT}..."
+
+                until mongosh \
+                  --host "${HOST}" \
+                  --port "${MONGO_PORT}" \
+                  --username "${MONGO_INITDB_ROOT_USERNAME}" \
+                  --password "${MONGO_INITDB_ROOT_PASSWORD}" \
+                  --authenticationDatabase admin \
+                  --quiet \
+                  --eval "db.adminCommand('ping')" > /dev/null 2>&1
+                do
+                  echo "${HOST} is not ready yet..."
+                  sleep 5
+                done
+
+                echo "${HOST} is ready."
+              done
+
+              echo "All MongoDB members are reachable."
+
+              echo "Checking replica set configuration..."
+
+              if mongosh \
+                --host "${MONGO_HOST}" \
+                --port "${MONGO_PORT}" \
+                --username "${MONGO_INITDB_ROOT_USERNAME}" \
+                --password "${MONGO_INITDB_ROOT_PASSWORD}" \
+                --authenticationDatabase admin \
+                --quiet \
+                --eval "rs.conf()._id" 2>/dev/null | grep -q "^${REPLICA_SET}$"
+              then
+                echo "Replica set ${REPLICA_SET} is already initialized."
+              else
+                echo "Replica set ${REPLICA_SET} is not initialized."
+                echo "Initializing replica set..."
+
+                mongosh \
+                  --host "${MONGO_HOST}" \
+                  --port "${MONGO_PORT}" \
+                  --username "${MONGO_INITDB_ROOT_USERNAME}" \
+                  --password "${MONGO_INITDB_ROOT_PASSWORD}" \
+                  --authenticationDatabase admin \
+                  --quiet \
+                  --eval "
+                    rs.initiate({
+                      _id: '${REPLICA_SET}',
+                      members: [
+                        {
+                          _id: 0,
+                          host: '${MONGO_HOST}:${MONGO_PORT}'
+                        },
+                        {
+                          _id: 1,
+                          host: '{{ include "goal-setter-app.fullname" . }}-mongo-1.{{ include "goal-setter-app.fullname" . }}-mongo:${MONGO_PORT}'
+                        },
+                        {
+                          _id: 2,
+                          host: '{{ include "goal-setter-app.fullname" . }}-mongo-2.{{ include "goal-setter-app.fullname" . }}-mongo:${MONGO_PORT}'
+                        }
+                      ]
+                    })
+                  "
+
+                echo "Replica set initialization command completed."
+              fi
+
+              echo "Waiting for replica set to become healthy..."
+
+              until mongosh \
+                --host "${MONGO_HOST}" \
+                --port "${MONGO_PORT}" \
+                --username "${MONGO_INITDB_ROOT_USERNAME}" \
+                --password "${MONGO_INITDB_ROOT_PASSWORD}" \
+                --authenticationDatabase admin \
+                --quiet \
+                --eval "
+                  const status = rs.status();
+                  status.members.length === 3 &&
+                  status.members.every(m => m.health === 1) &&
+                  status.members.some(m => m.stateStr === 'PRIMARY')
+                " 2>/dev/null | grep -q "true"
+              do
+                echo "Replica set is not healthy yet..."
+                sleep 5
+              done
+
+              echo "MongoDB replica set is healthy."
