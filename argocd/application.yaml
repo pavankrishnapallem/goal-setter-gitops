@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+
+metadata:
+  name: goal-setter-app
+  namespace: argocd
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/pavankrishnapallem/goal-setter-gitops
+    targetRevision: main
+    path: helm/goal-setter-app
+
+    helm:
+      valueFiles:
+        - values.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: goal-setter
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
